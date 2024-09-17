@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+  talents-api:
+    container_name: talents-api
+    image: talents-api
+    build:
+      context: .
+      target: ${NODE_ENV}
+      dockerfile: Dockerfile
+    environment:
+      - TYPEORM_HOST=talents-db
+      - TYPEORM_PORT=5432
+      - KC_HOSTNAME=talents-keycloak
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - ./logs:/logs
+    ports:
+      - ${API_PORT}:${API_PORT}
+    entrypoint: [ "sh", "-c", "dockerize -wait tcp://talents-db:5432 && npm run migration:run && npm run keycloak:seed && npm start" ]
+    networks:
+      - talents-net
+    depends_on:
+      talents-db:
+        condition: service_healthy
+    logging:
+        driver: "json-file"
+        options:
+            max-size: "10m"
+            max-file: "3"
+  talents-db:
+    container_name: talents-db
+    image: postgres:14.1-alpine
+    env_file:
+      - .env
+      - ./env/.env.api-db
+    expose:
+      - ${TYPEORM_PORT}
+    ports:
+      - ${TYPEORM_PORT}:5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./src/scripts/init_db.sh:/docker-entrypoint-initdb.d/init.sh
+    networks:
+      - talents-net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -h talents-db -U ${TYPEORM_USERNAME}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  talents-keycloak:
+    container_name: talents-keycloak
+    build:
+      context: .
+      target: ${NODE_ENV}
+      dockerfile: ${NODE_ENV}-kc.Dockerfile
+    environment:
+      - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN}
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
+      - KC_HOSTNAME=${KC_HOSTNAME}
+      - KC_PROFILE=${KC_PROFILE}
+      - KC_HEALTH_ENABLED=true
+      - KEYCLOAK_PORT=${KEYCLOAK_PORT}
+      - KC_HOSTNAME_STRICT=false
+      - KC_HOSTNAME_STRICT_HTTPS=false
+      - PROXY_ADDRESS_FORWARDING=true
+    env_file:
+      - .env
+    ports:
+      - "${KEYCLOAK_PORT}:${KEYCLOAK_PORT}"
+    entrypoint: [
+      "sh",
+      "-c",
+      "dockerize -wait tcp://talents-keycloak-db:5432 -timeout 1m && KC_HEALTH_ENABLED=true /opt/keycloak/bin/kc.sh start-dev --db=${KEYCLOAK_DB_VENDOR} --db-username=${KEYCLOAK_DB_USER} --db-password=${KEYCLOAK_DB_PASSWORD} --hostname=${KC_HOSTNAME} --http-port=${KEYCLOAK_PORT} --db-url=${KEYCLOAK_DB_URL}"
+    ]
+    depends_on:
+      talents-keycloak-db:
+        condition: service_healthy
+    volumes:
+      - keycloakdata:/opt/keycloak/data
+    networks:
+      - talents-net
+  talents-keycloak-db:
+    container_name: talents-keycloak-db
+    image: postgres:14.1-alpine
+    env_file:
+      - .env
+      - ./env/.env.keycloak-db
+    expose:
+      - ${KEYCLOAK_DB_PORT}
+    ports:
+      - ${KEYCLOAK_DB_PORT}:5432
+    volumes:
+      - ~/docker_data/keycloak_db:/var/lib/postgresql/data
+      - ./src/scripts/init_keycloak_db.sh:/docker-entrypoint-initdb.d/init.sh
+    networks:
+      - talents-net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -h talents-keycloak-db -U ${KEYCLOAK_DB_USER}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+networks:
+  talents-net:
+    external: false
+
+volumes:
+  keycloakdata:
+    driver: local
+  pgdata:
+    driver: local
