@@ -1,5 +1,7 @@
 ## Talents API
 
+![image](https://github.com/user-attachments/assets/cbfd8659-c38e-466b-8db1-cc137f535cf7)
+
 ### Descripción
 
 `Talents` is a `RESTful API` designed for Human Resource professionals to register and manage resumes, built with NestJS and adhering to the principles of Hexagonal Architecture.
